@@ -1,0 +1,26 @@
+syntax = "v1"
+
+type ConverRequest {
+	LongUrl string `json:"longURL" validate:"required"`
+}
+
+type ConvertResponse {
+	ShortUrl string `json:"shortURL"`
+}
+
+type ShowRequest {
+	ShortURL string `path:"shortURL" validate:"required"`
+}
+
+type ShowResponse {
+	LongURL string `json:"longURL"`
+}
+
+service shorturl-api {
+	@handler ConverHandler
+	post /convert (ConverRequest) returns (ConvertResponse)
+
+	@handler ShowHandler
+	get /:shortURL (ShowRequest) returns (ShowResponse)
+}
+

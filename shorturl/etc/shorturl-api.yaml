@@ -1,0 +1,19 @@
+Name: shorturl-api
+Host: 0.0.0.0
+Port: 8888
+
+ShortUrlDB:
+  DSN: root:123456@tcp(127.0.0.1:13307)/shorturl?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai
+
+Sequence:
+  DSN: root:123456@tcp(127.0.0.1:13307)/shorturl?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai
+
+BaseString: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+  
+ShortUrlBlackList: ["version", "fuck", "api", "stupid", "convert", "health", "css", "js", "java"]
+
+ShortDomain: hyl.com
+
+CacheRedis:
+  - Host: 127.0.0.1:16379
+    Pass: "123456"

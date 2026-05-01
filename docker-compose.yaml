@@ -1,0 +1,30 @@
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "16379:6379"
+    container_name: shorturl_redis
+    volumes:
+      - ./components/redis/data:/data
+      - ./components/redis/config/redis.conf:/usr/local/redis/conf/redis.conf
+    environment:
+      TZ: Asia/Shanghai
+    networks:
+      shorturl:
+    command: redis-server --requirepass 123456 --appendonly yes
+
+  mysql:
+    image: mysql:8.4
+    ports:
+      - "13307:3306"
+    container_name: shorturl_mysql
+    volumes:
+      - ./components/mysql/data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+    networks:
+      shorturl:
+
+networks:
+  shorturl:
+    driver: bridge
