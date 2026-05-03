@@ -9,6 +9,7 @@ import (
 	"shorturl/internal/logic"
 	"shorturl/internal/svc"
 	"shorturl/internal/types"
+	"shorturl/pkg/ip"
 )
 
 func ShowHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
@@ -23,6 +24,9 @@ func ShowHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
+		req.IP = ip.FromRequest(r)
+		req.UserAgent = r.UserAgent()
+		req.Referer = r.Referer()
 		l := logic.NewShowLogic(r.Context(), svcCtx)
 		resp, err := l.Show(&req)
 		if err != nil {

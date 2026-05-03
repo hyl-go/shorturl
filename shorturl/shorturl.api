@@ -1,11 +1,22 @@
 syntax = "v1"
 
 type ConverRequest {
-	LongUrl string `json:"longURL" validate:"required"`
+	LongUrl           string `json:"longURL" validate:"required"`
+	CustomShortURL    string `json:"customShortURL,optional"`
+	// 过期（任选其一）：ExpirePreset / ExpireAfter* / ExpireAt(RFC3339 兼容旧客户端)
+	ExpirePreset      string `json:"expirePreset,optional"`      // 空 | none | never | 30m | 1h | 1d | 7d
+	ExpireAfterValue  int64  `json:"expireAfterValue,optional"`    // 与 ExpireAfterUnit 同时使用
+	ExpireAfterUnit   string `json:"expireAfterUnit,optional"`    // minute hour day week month year
+	ExpireAt          string `json:"expireAt,optional"`
+	EnableAI          bool   `json:"enableAI,optional"`
 }
 
 type ConvertResponse {
-	ShortUrl string `json:"shortURL"`
+	ShortUrl      string `json:"shortURL"`
+	ExpireAt      string `json:"expireAt"`
+	Category      string `json:"category,optional"`
+	SafetyStatus  string `json:"safetyStatus,optional"`
+	AiSuggestions []string `json:"aiSuggestions,optional"`
 }
 
 type ShowRequest {
@@ -16,9 +27,129 @@ type ShowResponse {
 	LongURL string `json:"longURL"`
 }
 
+type StatsRequest {
+	ShortURL string `form:"shortURL" validate:"required"`
+	StartDate string `form:"startDate" validate:"required"`
+	EndDate string `form:"endDate" validate:"required"`
+}
+
+type ChartPoint {
+	Date string `json:"date"`
+	PV int64 `json:"pv"`
+	UV int64 `json:"uv"`
+}
+
+type DeviceStats {
+	MobileRate float64 `json:"mobileRate"`
+}
+
+type GeoStat {
+	Country string `json:"country"`
+	City string `json:"city"`
+	Count int64 `json:"count"`
+}
+
+type StatsResponse {
+	TotalPV int64 `json:"totalPV"`
+	TotalUV int64 `json:"totalUV"`
+	ChartData []ChartPoint `json:"chartData"`
+	DeviceStats DeviceStats `json:"deviceStats"`
+	GeoStats []GeoStat `json:"geoStats"`
+}
+
+type AnalyzeRequest {
+	ShortURL string `json:"shortURL" validate:"required"`
+	StartDate string `json:"startDate" validate:"required"`
+	EndDate string `json:"endDate" validate:"required"`
+}
+
+type AIReport {
+	Summary string `json:"summary"`
+	Trends []string `json:"trends"`
+	Anomalies []string `json:"anomalies"`
+	Suggestions []string `json:"suggestions"`
+}
+
+type AnalyzeResponse {
+	Statistics StatsResponse `json:"statistics"`
+	AIReport AIReport `json:"aiReport"`
+}
+
+type LinkListRequest {
+	Page int64 `form:"page,optional"`
+	PageSize int64 `form:"pageSize,optional"`
+	Category string `form:"category,optional"` // 空=全部；「其他」含历史未分类
+}
+
+type LinkListItem {
+	Id uint64 `json:"id"`
+	LongURL string `json:"longURL"`
+	ShortURL string `json:"shortURL"`
+	ShortPath string `json:"shortPath"`
+	Category string `json:"category,optional"`
+	SafetyStatus string `json:"safetyStatus,optional"`
+	ExpireAt string `json:"expireAt,optional"`
+	CreateAt string `json:"createAt"`
+	UpdateAt string `json:"updateAt,optional"`
+	PageTitle string `json:"pageTitle,optional"`
+	PageDescription string `json:"pageDescription,optional"`
+	AiSuggestions []string `json:"aiSuggestions,optional"`
+	Md5 string `json:"md5,optional"`
+}
+
+type LinkUpdateRequest {
+	Id uint64 `path:"id"`
+	LongURL string `json:"longURL,optional"`
+	Category string `json:"category,optional"`
+	NoExpire bool `json:"noExpire,optional"`
+	ExpirePreset string `json:"expirePreset,optional"`
+	ExpireAfterValue int64 `json:"expireAfterValue,optional"`
+	ExpireAfterUnit string `json:"expireAfterUnit,optional"`
+	ExpireAt string `json:"expireAt,optional"`
+}
+
+type LinkUpdateResponse {
+	Item LinkListItem `json:"item"`
+}
+
+type LinkDeleteRequest {
+	Id uint64 `path:"id"`
+}
+
+type LinkDeleteResponse {
+	Ok bool `json:"ok"`
+}
+
+type LinkListResponse {
+	Total int64 `json:"total"`
+	List []LinkListItem `json:"list"`
+}
+
+type LinkCategoriesResponse {
+	Categories []string `json:"categories"`
+}
+
 service shorturl-api {
 	@handler ConverHandler
 	post /convert (ConverRequest) returns (ConvertResponse)
+
+	@handler StatsHandler
+	get /stats (StatsRequest) returns (StatsResponse)
+
+	@handler AnalyzeHandler
+	post /analyze (AnalyzeRequest) returns (AnalyzeResponse)
+
+	@handler LinkCategoriesHandler
+	get /links/categories returns (LinkCategoriesResponse)
+
+	@handler UpdateLinkHandler
+	put /links/:id (LinkUpdateRequest) returns (LinkUpdateResponse)
+
+	@handler DeleteLinkHandler
+	delete /links/:id (LinkDeleteRequest) returns (LinkDeleteResponse)
+
+	@handler LinkListHandler
+	get /links (LinkListRequest) returns (LinkListResponse)
 
 	@handler ShowHandler
 	get /:shortURL (ShowRequest) returns (ShowResponse)

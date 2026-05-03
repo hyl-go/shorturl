@@ -15,14 +15,44 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 	server.AddRoutes(
 		[]rest.Route{
 			{
-				Method:  http.MethodGet,
-				Path:    "/:shortURL",
-				Handler: ShowHandler(serverCtx),
-			},
-			{
 				Method:  http.MethodPost,
 				Path:    "/convert",
 				Handler: ConverHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/stats",
+				Handler: StatsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/analyze",
+				Handler: AnalyzeHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/links/categories",
+				Handler: LinkCategoriesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/links/:id",
+				Handler: UpdateLinkHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/links/:id",
+				Handler: DeleteLinkHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/links",
+				Handler: LinkListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/:shortURL",
+				Handler: ShowHandler(serverCtx),
 			},
 		},
 	)

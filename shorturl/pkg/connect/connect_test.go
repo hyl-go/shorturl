@@ -1,22 +1,39 @@
 package connect
 
 import (
-	"github.com/smartystreets/goconvey/convey"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/smartystreets/goconvey/convey"
 )
 
-func TestGet(t *testing.T) {
-	convey.Convey("基础用例", t, func() {
-		url := "https://www.liwenzhou.com/posts/Go/golang-menu/"
-		got := Get(url)
-		// 断言
-		convey.So(got, convey.ShouldEqual, true)
+func TestGet_httptest(t *testing.T) {
+	convey.Convey("2xx 视为可访问", t, func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+		convey.So(Get(srv.URL), convey.ShouldBeTrue)
 	})
 
-	convey.Convey("url请求不通", t, func() {
-		url := "https://www.liwenzhou.com"
-		got := Get(url)
-		// 断言
-		convey.So(got, convey.ShouldBeFalse)
+	convey.Convey("204 No Content 仍为成功（2xx）", t, func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer srv.Close()
+		convey.So(Get(srv.URL), convey.ShouldBeTrue)
+	})
+
+	convey.Convey("404 视为不可访问", t, func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+		convey.So(Get(srv.URL), convey.ShouldBeFalse)
+	})
+
+	convey.Convey("非法 URL", t, func() {
+		convey.So(Get("not-a-url"), convey.ShouldBeFalse)
 	})
 }

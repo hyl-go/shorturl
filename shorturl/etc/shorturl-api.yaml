@@ -1,6 +1,9 @@
 Name: shorturl-api
 Host: 0.0.0.0
 Port: 8888
+# go-zero 单请求超时（毫秒）。开启 AI 时需覆盖：探测/爬取/大模型，默认 3000ms 会导致 Request Timeout
+Timeout: 180000
+Cors: true
 
 ShortUrlDB:
   DSN: root:123456@tcp(127.0.0.1:13307)/shorturl?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai
@@ -10,10 +13,27 @@ Sequence:
 
 BaseString: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
   
-ShortUrlBlackList: ["version", "fuck", "api", "stupid", "convert", "health", "css", "js", "java"]
+ShortUrlBlackList: ["version", "fuck", "api", "stupid", "convert", "stats", "links", "analyze", "health", "css", "js", "java"]
 
-ShortDomain: hyl.com
+ShortDomain: localhost:8888
 
 CacheRedis:
   - Host: 127.0.0.1:16379
     Pass: "123456"
+
+AI:
+  Provider: deepseek
+  DeepSeek:
+    APIKey: "sk-xx"
+    BaseURL: "https://api.deepseek.com/v1"
+    Model: "deepseek-chat"
+    Timeout: 60s
+  Fallback:
+    Enabled: true
+    Providers: ["deepseek"]
+
+Asynq:
+  RedisAddr: 127.0.0.1:16379
+  RedisPass: "123456"
+  RedisDB: 0
+  Queue: "default"

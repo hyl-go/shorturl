@@ -3,11 +3,15 @@ package svc
 import (
 	"context"
 
+	"github.com/hibiken/asynq"
 	"github.com/zeromicro/go-zero/core/bloom"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/redis"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+	"shorturl/internal/ai"
 	"shorturl/internal/config"
+	"shorturl/internal/crawler"
+	"shorturl/internal/worker"
 	"shorturl/model"
 	"shorturl/sequence"
 )
@@ -18,6 +22,11 @@ type ServiceContext struct {
 	Sequence          sequence.Sequence
 	ShortUrlBlackList map[string]struct{}
 	Filter            *bloom.Filter
+	Redis             *redis.Redis
+	DbConn            sqlx.SqlConn
+	AIFactory         *ai.Factory
+	Fetcher           *crawler.Fetcher
+	LogWorker         *worker.LogWorker
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -33,6 +42,18 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	})
 	filter := bloom.New(store, "bloom_filter", 20*(1<<20))
 	shortUrlMapModel := model.NewShortUrlMapModel(conn, c.CacheRedis)
+	aiFactory := ai.NewFactory(c.AI)
+	fetcher := crawler.NewFetcher()
+
+	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+		Addr:     c.Asynq.RedisAddr,
+		Password: c.Asynq.RedisPass,
+		DB:       c.Asynq.RedisDB,
+	})
+	logWorker := &worker.LogWorker{
+		Client: asynqClient,
+		DB:     conn,
+	}
 
 	// 启动时预热布隆过滤器，将数据库中所有已有短链接加载进去
 	if surls, err := shortUrlMapModel.FindAllSurl(context.Background()); err != nil {
@@ -51,6 +72,11 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		ShortUrlMapModel:  shortUrlMapModel,
 		Sequence:          sequence.NewMysql(c.Sequence.DSN),
 		Filter:            filter,
+		Redis:             store,
 		ShortUrlBlackList: m,
+		DbConn:            conn,
+		AIFactory:         aiFactory,
+		Fetcher:           fetcher,
+		LogWorker:         logWorker,
 	}
 }

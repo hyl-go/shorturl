@@ -1,0 +1,48 @@
+/* 全局主题与布局变量 */
+:root {
+  --app-bg: #0f1419;
+  --app-surface: rgba(255, 255, 255, 0.06);
+  --app-surface-solid: #1a2332;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-text: #e8edf4;
+  --app-text-muted: #8b9cb3;
+  --app-accent: #3d8bfd;
+  --app-accent-soft: rgba(61, 139, 253, 0.15);
+  --app-radius: 14px;
+  --app-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --app-font: 'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--app-font);
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Element Plus 在暗色背景上的基础调和 */
+.guest-page .el-card,
+.admin-main .el-card {
+  --el-card-bg-color: var(--app-surface-solid);
+  --el-card-border-color: var(--app-border);
+  background: var(--app-surface-solid);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+}
+
+.guest-page .el-input__wrapper,
+.admin-main .el-input__wrapper {
+  border-radius: 10px;
+}
+
+.guest-page .el-form-item__label {
+  color: var(--app-text-muted);
+}

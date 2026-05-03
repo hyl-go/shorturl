@@ -1,6 +1,9 @@
 docs/claude-relay-service/
 .codex
+.claude
+.cursor
 技术文档.md
+ai_shorturl_tech_doc.md
 components
 # ===================
 # Go 后端
@@ -33,8 +36,8 @@ backend/.gocache/
 # Node.js / Vue 前端
 # ===================
 node_modules/
-frontend/node_modules/
-frontend/dist/
+shortUrlfrontend/node_modules/
+shortUrlfrontend/dist/
 *.local
 *.tsbuildinfo
 vite.config.d.ts
