@@ -6,14 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"shorturl/internal/crawler"
 	"shorturl/model"
 	"shorturl/pkg/base62"
 	"shorturl/pkg/connect"
 	"shorturl/pkg/md5"
 	"shorturl/pkg/urlTool"
+	"strings"
 	"time"
 
 	"shorturl/internal/svc"
@@ -36,41 +36,41 @@ func NewConverLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ConverLogi
 	}
 }
 
-// 转链，输入一个长链接输出一个短链接
+// Conver 转链流程（基线 + AI 扩展）：
+//  1. 连通性：对 longURL 轻量 GET，非 2xx 视为无效（含开启 AI 时；其后 Fetcher 可能再次请求用于标题/描述）。
+//  2. 同长链（MD5）已存在：区分 有效 / 已过期 / 已软删 —— 返回或 UPDATE 续约、复活（不得 INSERT，否则 unique(lurl) 冲突）。
+//  3. 防套娃：长链基底路径若已是已有 surl，拒绝。
+//  4. 生成 surl：自定义（黑名单 + 占用检查）或 Sequence+Base62（黑名单则循环重取）。
+//  5. 过期：ExpirePreset / ExpireAfter* / ExpireAt(RFC3339) 解析；全无则 expire_at 为 NULL。
+//  6. AI（可选）：爬取 + 分析，危险则拒绝写入。
+//  7. Bloom.Add（先于 DB 写入，避免 Insert 成功但布隆未写入导致跳转永久 404）→ Insert → 响应。
 func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertResponse, err error) {
-	// 可达性校验：未开 AI 时用轻量 GET 探测；开 AI 时由网页抓取承担校验，避免重复完整 GET 拉长耗时与超时
-	if !req.EnableAI {
-		if ok := connect.Get(req.LongUrl); !ok {
-			return nil, errors.New("无效的连接")
-		}
-	} else if !isAllowedHTTPURL(req.LongUrl) {
+	if ok := connect.Get(l.ctx, l.svcCtx.UserURLProbe, req.LongUrl); !ok {
 		return nil, errors.New("无效的连接")
 	}
-	// 给长链接生成md5
+
 	md5Value := md5.Sum([]byte(req.LongUrl))
 	u, err := l.svcCtx.ShortUrlMapModel.FindOneByMd5(l.ctx, sql.NullString{String: md5Value, Valid: true})
-	if err == nil && u.IsDel != 0 {
-		// 同 URL 曾被软删：允许重新生成新短链
-		err = model.ErrNotFound
-	}
-	if err == nil {
-		// 已存在，直接返回已有短链接（幂等）
-		resp := &types.ConvertResponse{
-			ShortUrl:     l.svcCtx.Config.ShortDomain + "/" + u.Surl.String,
-			Category:     normalizeCategoryDisplay(u.Category.String),
-			SafetyStatus: getSafetyLevelString(u.SafetyStatus),
-		}
-		if len(u.AiSuggestions) > 0 {
-			_ = json.Unmarshal(u.AiSuggestions, &resp.AiSuggestions)
-		}
-		if u.ExpireAt.Valid {
-			resp.ExpireAt = formatLocalDateTime(u.ExpireAt.Time)
-		}
-		return resp, nil
-	}
-	if err != model.ErrNotFound {
+	if err != nil && err != model.ErrNotFound {
 		logx.Errorw("ShortUrlMapModel.FindOneByMd5 failed", logx.LogField{Key: "md5", Value: err.Error()})
 		return nil, err
+	}
+	if err == nil {
+		now := time.Now()
+		expired := u.ExpireAt.Valid && now.After(u.ExpireAt.Time)
+		deleted := u.IsDel != 0
+
+		switch {
+		case !deleted && !expired:
+			// 有效映射：幂等返回（忽略本次自定义短码、过期策略等）
+			return l.rowToConvertResponse(u, linkReuseSameActive), nil
+		case !deleted && expired:
+			// 未删除但已过展示期：同记录续约 expire / 可选刷新 AI
+			return l.persistConvertedRowUpdate(u, req, linkReuseRenewedExpired)
+		default:
+			// 已软删：同 lurl 无法再 INSERT，在同记录上复活
+			return l.persistConvertedRowUpdate(u, req, linkReuseReactivatedDeleted)
+		}
 	}
 	baseUrl, err := urlTool.GetBasePath(req.LongUrl)
 	if err != nil {
@@ -121,46 +121,18 @@ func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertRespo
 		return nil, err
 	}
 
-	var aiResultCategory sql.NullString
-	var aiSafetyStatus uint64
-	var aiTitle sql.NullString
-	var aiDesc sql.NullString
-	var aiSuggestions []byte
-	if req.EnableAI {
-		pageInfo, fetchErr := l.svcCtx.Fetcher.Fetch(l.ctx, req.LongUrl)
-		if fetchErr != nil {
-			logx.Errorf("fetch page failed: %v", fetchErr)
-			pageInfo = &crawler.PageInfo{}
-		}
-		analysis, aiErr := l.svcCtx.AIFactory.AnalyzeWithFallback(
-			l.ctx,
-			l.svcCtx.Config.AI.Provider,
-			req.LongUrl,
-			pageInfo.Title,
-			pageInfo.Description,
-		)
-		fmt.Printf("analysis====》%v\n", analysis)
-		if aiErr != nil {
-			logx.Errorf("analyze url failed: %v", aiErr)
-		} else if analysis != nil {
-			if analysis.SafetyLevel == "dangerous" {
-				return nil, fmt.Errorf("该链接存在安全风险，拒绝生成短链：%s", analysis.SafetyReason)
-			}
-			if strings.TrimSpace(analysis.Category) != "" {
-				aiResultCategory = sql.NullString{String: strings.TrimSpace(analysis.Category), Valid: true}
-			}
-			aiSafetyStatus = getSafetyStatus(analysis.SafetyLevel)
-			aiTitle = sql.NullString{String: analysis.PageTitle, Valid: analysis.PageTitle != ""}
-			aiDesc = sql.NullString{String: analysis.PageDesc, Valid: analysis.PageDesc != ""}
-			if len(analysis.Suggestions) > 0 {
-				aiSuggestions, _ = json.Marshal(analysis.Suggestions)
-			}
-		}
+	aiResultCategory, aiSafetyStatus, aiTitle, aiDesc, aiSuggestions, err := l.mergeAIOrKeepRow(req, nil)
+	if err != nil {
+		return nil, err
 	}
 	if !aiResultCategory.Valid || strings.TrimSpace(aiResultCategory.String) == "" {
 		aiResultCategory = sql.NullString{String: "其他", Valid: true}
 	}
 
+	if err := l.svcCtx.Filter.Add([]byte(short)); err != nil {
+		logx.Errorw("Bloom Add failed", logx.LogField{Key: "err", Value: err.Error()})
+		return nil, errors.New("短链索引写入失败，请稍后重试")
+	}
 	if _, err := l.svcCtx.ShortUrlMapModel.Insert(
 		l.ctx,
 		&model.ShortUrlMap{
@@ -174,26 +146,169 @@ func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertRespo
 			PageDescription: aiDesc,
 			AiSuggestions:   aiSuggestions,
 		}); err != nil {
+		if existing, ok := l.recoverFromDuplicateLurl(req.LongUrl, err); ok {
+			return existing, nil
+		}
 		logx.Errorw("ShortUrlMapModel.Insert failed", logx.LogField{Key: "err", Value: err.Error()})
 		return nil, err
 	}
-	err = l.svcCtx.Filter.Add([]byte(short))
+	inserted := model.ShortUrlMap{
+		Surl:            sql.NullString{String: short, Valid: true},
+		ExpireAt:        expireAt,
+		Category:        aiResultCategory,
+		SafetyStatus:    aiSafetyStatus,
+		PageTitle:       aiTitle,
+		PageDescription: aiDesc,
+		AiSuggestions:   aiSuggestions,
+	}
+	return l.rowToConvertResponse(&inserted, linkReuseInsertedNew), nil
+}
+
+const (
+	linkReuseSameActive         = "same_active"
+	linkReuseRenewedExpired     = "renewed_expired"
+	linkReuseReactivatedDeleted = "reactivated_deleted"
+	linkReuseInsertedNew        = "inserted_new"
+)
+
+func (l *ConverLogic) rowToConvertResponse(u *model.ShortUrlMap, reuse string) *types.ConvertResponse {
+	resp := &types.ConvertResponse{
+		ShortUrl:     l.svcCtx.Config.ShortDomain + "/" + u.Surl.String,
+		Category:     normalizeCategoryDisplay(u.Category.String),
+		SafetyStatus: getSafetyLevelString(u.SafetyStatus),
+		LinkReuse:    reuse,
+	}
+	if len(u.AiSuggestions) > 0 {
+		_ = json.Unmarshal(u.AiSuggestions, &resp.AiSuggestions)
+	}
+	if u.ExpireAt.Valid {
+		resp.ExpireAt = formatLocalDateTime(u.ExpireAt.Time)
+	}
+	return resp
+}
+
+func (l *ConverLogic) persistConvertedRowUpdate(row *model.ShortUrlMap, req *types.ConverRequest, reuseTag string) (*types.ConvertResponse, error) {
+	expireAt, err := resolveExpireAt(req)
 	if err != nil {
+		return nil, err
+	}
+	cat, safety, title, desc, sugBytes, err := l.mergeAIOrKeepRow(req, row)
+	if err != nil {
+		return nil, err
+	}
+	if !cat.Valid || strings.TrimSpace(cat.String) == "" {
+		cat = sql.NullString{String: "其他", Valid: true}
+	}
+	updated := *row
+	updated.IsDel = 0
+	updated.ExpireAt = expireAt
+	updated.Category = cat
+	updated.SafetyStatus = safety
+	updated.PageTitle = title
+	updated.PageDescription = desc
+	updated.AiSuggestions = sugBytes
+
+	if err := l.svcCtx.Filter.Add([]byte(updated.Surl.String)); err != nil {
 		logx.Errorw("Bloom Add failed", logx.LogField{Key: "err", Value: err.Error()})
+		return nil, errors.New("短链索引写入失败，请稍后重试")
 	}
-	shortUrl := l.svcCtx.Config.ShortDomain + "/" + short
-	resp = &types.ConvertResponse{
-		ShortUrl:     shortUrl,
-		Category:     normalizeCategoryDisplay(aiResultCategory.String),
-		SafetyStatus: getSafetyLevelString(aiSafetyStatus),
+	if err := l.svcCtx.ShortUrlMapModel.Update(l.ctx, &updated); err != nil {
+		logx.Errorw("ShortUrlMapModel.Update failed", logx.LogField{Key: "id", Value: row.Id}, logx.LogField{Key: "err", Value: err.Error()})
+		return nil, err
 	}
-	if len(aiSuggestions) > 0 {
-		_ = json.Unmarshal(aiSuggestions, &resp.AiSuggestions)
+	return l.rowToConvertResponse(&updated, reuseTag), nil
+}
+
+// recoverFromDuplicateLurl 兜底处理并发重复提交导致的 unique(lurl) 冲突：
+// 当插入阶段命中 duplicate key，回查已存在行并按当前复用策略返回。
+func (l *ConverLogic) recoverFromDuplicateLurl(longURL string, insertErr error) (*types.ConvertResponse, bool) {
+	var mysqlErr *mysqlDriver.MySQLError
+	if !errors.As(insertErr, &mysqlErr) || mysqlErr.Number != 1062 {
+		return nil, false
 	}
-	if expireAt.Valid {
-		resp.ExpireAt = formatLocalDateTime(expireAt.Time)
+	existing, err := l.svcCtx.ShortUrlMapModel.FindOneByLurl(l.ctx, sql.NullString{String: longURL, Valid: true})
+	if err != nil {
+		return nil, false
 	}
-	return resp, nil
+	now := time.Now()
+	expired := existing.ExpireAt.Valid && now.After(existing.ExpireAt.Time)
+	deleted := existing.IsDel != 0
+	switch {
+	case !deleted && !expired:
+		return l.rowToConvertResponse(existing, linkReuseSameActive), true
+	case !deleted && expired:
+		return l.rowToConvertResponse(existing, linkReuseRenewedExpired), true
+	default:
+		return l.rowToConvertResponse(existing, linkReuseReactivatedDeleted), true
+	}
+}
+
+// mergeAIOrKeepRow 新开转换传 row=nil；续约/复活传入库行。未开 AI 时保留原分类等字段（新开仍为「其他」）。
+func (l *ConverLogic) mergeAIOrKeepRow(req *types.ConverRequest, row *model.ShortUrlMap) (
+	category sql.NullString,
+	safety uint64,
+	title sql.NullString,
+	desc sql.NullString,
+	suggestions []byte,
+	err error,
+) {
+	if !req.EnableAI {
+		return l.nonAICategoryFields(row)
+	}
+	pageInfo, fetchErr := l.svcCtx.Fetcher.Fetch(l.ctx, req.LongUrl)
+	if fetchErr != nil {
+		logx.Errorf("fetch page failed: %v", fetchErr)
+		pageInfo = &crawler.PageInfo{}
+	}
+	analysis, aiErr := l.svcCtx.AIFactory.AnalyzeWithFallback(
+		l.ctx,
+		l.svcCtx.Config.AI.Provider,
+		req.LongUrl,
+		pageInfo.Title,
+		pageInfo.Description,
+	)
+	if aiErr != nil {
+		logx.Errorf("analyze url failed: %v", aiErr)
+		return l.nonAICategoryFields(row)
+	}
+	if analysis == nil {
+		return l.nonAICategoryFields(row)
+	}
+	if analysis.SafetyLevel == "dangerous" {
+		return sql.NullString{}, 0, sql.NullString{}, sql.NullString{}, nil, fmt.Errorf("该链接存在安全风险，拒绝生成短链：%s", analysis.SafetyReason)
+	}
+	category = sql.NullString{}
+	if strings.TrimSpace(analysis.Category) != "" {
+		category = sql.NullString{String: strings.TrimSpace(analysis.Category), Valid: true}
+	}
+	safety = getSafetyStatus(analysis.SafetyLevel)
+	title = sql.NullString{String: analysis.PageTitle, Valid: analysis.PageTitle != ""}
+	desc = sql.NullString{String: analysis.PageDesc, Valid: analysis.PageDesc != ""}
+	if len(analysis.Suggestions) > 0 {
+		suggestions, _ = json.Marshal(analysis.Suggestions)
+	}
+	if !category.Valid || strings.TrimSpace(category.String) == "" {
+		category = sql.NullString{String: "其他", Valid: true}
+	}
+	return category, safety, title, desc, suggestions, nil
+}
+
+func (l *ConverLogic) nonAICategoryFields(row *model.ShortUrlMap) (
+	category sql.NullString,
+	safety uint64,
+	title sql.NullString,
+	desc sql.NullString,
+	suggestions []byte,
+	err error,
+) {
+	if row != nil {
+		category = row.Category
+		if !category.Valid || strings.TrimSpace(category.String) == "" {
+			category = sql.NullString{String: "其他", Valid: true}
+		}
+		return category, row.SafetyStatus, row.PageTitle, row.PageDescription, row.AiSuggestions, nil
+	}
+	return sql.NullString{String: "其他", Valid: true}, 0, sql.NullString{}, sql.NullString{}, nil, nil
 }
 
 func getSafetyStatus(level string) uint64 {
@@ -218,20 +333,7 @@ func getSafetyLevelString(level uint64) string {
 	}
 }
 
-func isAllowedHTTPURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	switch u.Scheme {
-	case "http", "https":
-		return true
-	default:
-		return false
-	}
-}
-
-// resolveExpireAt 优先级：ExpirePreset → 相对时长 → ExpireAt(RFC3339)。
+// resolveExpireAt 在 RFC3339（ExpireAt）基线上扩展：ExpirePreset、相对时长；优先级：Preset → 相对 → RFC3339。
 func resolveExpireAt(req *types.ConverRequest) (sql.NullTime, error) {
 	preset := strings.TrimSpace(strings.ToLower(req.ExpirePreset))
 	switch preset {

@@ -2,6 +2,8 @@ package svc
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/zeromicro/go-zero/core/bloom"
@@ -13,6 +15,7 @@ import (
 	"shorturl/internal/crawler"
 	"shorturl/internal/worker"
 	"shorturl/model"
+	"shorturl/pkg/ssrf"
 	"shorturl/sequence"
 )
 
@@ -26,7 +29,9 @@ type ServiceContext struct {
 	DbConn            sqlx.SqlConn
 	AIFactory         *ai.Factory
 	Fetcher           *crawler.Fetcher
-	LogWorker         *worker.LogWorker
+	// UserURLProbe 对用户长链做可达性探测（SSRF 防护 Client）
+	UserURLProbe *http.Client
+	LogWorker    *worker.LogWorker
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -43,7 +48,39 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	filter := bloom.New(store, "bloom_filter", 20*(1<<20))
 	shortUrlMapModel := model.NewShortUrlMapModel(conn, c.CacheRedis)
 	aiFactory := ai.NewFactory(c.AI)
-	fetcher := crawler.NewFetcher()
+	ssrfPol := ssrf.Policy{
+		OnlyStdPorts:        c.SSRF.OnlyStdPorts,
+		AllowPrivateTargets: c.SSRF.AllowPrivateTargets,
+	}
+	probeTO := c.SSRF.ProbeTimeout
+	if probeTO <= 0 {
+		probeTO = 5 * time.Second
+	}
+	fetchTO := c.SSRF.FetchTimeout
+	if fetchTO <= 0 {
+		fetchTO = 15 * time.Second
+	}
+	maxRedir := c.SSRF.MaxRedirects
+	if maxRedir <= 0 {
+		maxRedir = 5
+	}
+	maxBody := c.SSRF.MaxFetchBodyBytes
+	if maxBody <= 0 {
+		maxBody = 2 * 1024 * 1024
+	}
+	userURLProbe := ssrf.NewUserURLHTTPClient(ssrf.ClientOptions{
+		Policy:       ssrfPol,
+		Timeout:      probeTO,
+		MaxRedirects: maxRedir,
+	})
+	fetcher := crawler.NewFetcher(crawler.Options{
+		HTTPClient: ssrf.NewUserURLHTTPClient(ssrf.ClientOptions{
+			Policy:       ssrfPol,
+			Timeout:      fetchTO,
+			MaxRedirects: maxRedir,
+		}),
+		MaxBodyBytes: maxBody,
+	})
 
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 		Addr:     c.Asynq.RedisAddr,
@@ -77,6 +114,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		DbConn:            conn,
 		AIFactory:         aiFactory,
 		Fetcher:           fetcher,
+		UserURLProbe:      userURLProbe,
 		LogWorker:         logWorker,
 	}
 }

@@ -79,11 +79,12 @@ func (m *defaultShortUrlMapModel) Delete(ctx context.Context, id uint64) error {
 
 	shorturlShortUrlMapIdKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapIdPrefix, id)
 	shorturlShortUrlMapLurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapLurlPrefix, data.Lurl)
+	shorturlShortUrlMapMd5Key := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapMd5Prefix, data.Md5)
 	shorturlShortUrlMapSurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapSurlPrefix, data.Surl)
 	_, err = m.ExecCtx(ctx, func(ctx context.Context, conn sqlx.SqlConn) (result sql.Result, err error) {
 		query := fmt.Sprintf("delete from %s where `id` = ?", m.table)
 		return conn.ExecCtx(ctx, query, id)
-	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapSurlKey)
+	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapMd5Key, shorturlShortUrlMapSurlKey)
 	return err
 }
 
@@ -167,11 +168,12 @@ func (m *defaultShortUrlMapModel) FindOneBySurl(ctx context.Context, surl sql.Nu
 func (m *defaultShortUrlMapModel) Insert(ctx context.Context, data *ShortUrlMap) (sql.Result, error) {
 	shorturlShortUrlMapIdKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapIdPrefix, data.Id)
 	shorturlShortUrlMapLurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapLurlPrefix, data.Lurl)
+	shorturlShortUrlMapMd5Key := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapMd5Prefix, data.Md5)
 	shorturlShortUrlMapSurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapSurlPrefix, data.Surl)
 	ret, err := m.ExecCtx(ctx, func(ctx context.Context, conn sqlx.SqlConn) (result sql.Result, err error) {
 		query := fmt.Sprintf("insert into %s (%s) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", m.table, shortUrlMapRowsExpectAutoSet)
 		return conn.ExecCtx(ctx, query, data.CreateBy, data.IsDel, data.Lurl, data.Md5, data.Surl, data.ExpireAt, data.Category, data.SafetyStatus, data.PageTitle, data.PageDescription, data.AiSuggestions)
-	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapSurlKey)
+	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapMd5Key, shorturlShortUrlMapSurlKey)
 	return ret, err
 }
 
@@ -183,11 +185,16 @@ func (m *defaultShortUrlMapModel) Update(ctx context.Context, newData *ShortUrlM
 
 	shorturlShortUrlMapIdKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapIdPrefix, data.Id)
 	shorturlShortUrlMapLurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapLurlPrefix, data.Lurl)
+	shorturlShortUrlMapMd5Key := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapMd5Prefix, data.Md5)
 	shorturlShortUrlMapSurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapSurlPrefix, data.Surl)
+	newShorturlShortUrlMapLurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapLurlPrefix, newData.Lurl)
+	newShorturlShortUrlMapMd5Key := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapMd5Prefix, newData.Md5)
+	newShorturlShortUrlMapSurlKey := fmt.Sprintf("%s%v", cacheShorturlShortUrlMapSurlPrefix, newData.Surl)
 	_, err = m.ExecCtx(ctx, func(ctx context.Context, conn sqlx.SqlConn) (result sql.Result, err error) {
 		query := fmt.Sprintf("update %s set %s where `id` = ?", m.table, shortUrlMapRowsWithPlaceHolder)
 		return conn.ExecCtx(ctx, query, newData.CreateBy, newData.IsDel, newData.Lurl, newData.Md5, newData.Surl, newData.ExpireAt, newData.Category, newData.SafetyStatus, newData.PageTitle, newData.PageDescription, newData.AiSuggestions, newData.Id)
-	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapSurlKey)
+	}, shorturlShortUrlMapIdKey, shorturlShortUrlMapLurlKey, shorturlShortUrlMapMd5Key, shorturlShortUrlMapSurlKey,
+		newShorturlShortUrlMapLurlKey, newShorturlShortUrlMapMd5Key, newShorturlShortUrlMapSurlKey)
 	return err
 }
 

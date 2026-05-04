@@ -16,7 +16,7 @@ func NewAsynqServer(redisOpt asynq.RedisClientOpt) *asynq.Server {
 	})
 }
 
-func BuildMux(logWorker *LogWorker, statsWorker *StatsWorker) *asynq.ServeMux {
+func BuildMux(logWorker *LogWorker, statsWorker *StatsWorker, gcWorker *LinkGCWorker) *asynq.ServeMux {
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(TypeAccessLog, func(ctx context.Context, task *asynq.Task) error {
 		return logWorker.HandleAccessLog(ctx, task)
@@ -24,6 +24,11 @@ func BuildMux(logWorker *LogWorker, statsWorker *StatsWorker) *asynq.ServeMux {
 	mux.HandleFunc(TypeStatsAggregateHour, func(ctx context.Context, task *asynq.Task) error {
 		return statsWorker.AggregateHour(ctx, task)
 	})
+	if gcWorker != nil {
+		mux.HandleFunc(TypeLinkGCPurge, func(ctx context.Context, task *asynq.Task) error {
+			return gcWorker.PurgeOldTombstones(ctx, task)
+		})
+	}
 	return mux
 }
 

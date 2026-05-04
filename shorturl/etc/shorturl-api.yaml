@@ -3,6 +3,23 @@ Host: 0.0.0.0
 Port: 8888
 # go-zero 单请求超时（毫秒）。开启 AI 时需覆盖：探测/爬取/大模型，默认 3000ms 会导致 Request Timeout
 Timeout: 180000
+# 全局最大并发连接、请求体上限（字节）；CpuThreshold 用于负载 shedding（0–1000，默认 900）
+MaxConns: 4000
+MaxBytes: 2097152
+CpuThreshold: 900
+# 与 RestConf.Middlewares 对齐：显式开启熔断、超时、限连接、自适应降载等
+Middlewares:
+  Trace: true
+  Log: true
+  Prometheus: true
+  MaxConns: true
+  Breaker: true
+  Shedding: true
+  Timeout: true
+  Recover: true
+  Metrics: true
+  MaxBytes: true
+  Gunzip: true
 Cors: true
 
 ShortUrlDB:
@@ -37,3 +54,30 @@ Asynq:
   RedisPass: "123456"
   RedisDB: 0
   Queue: "default"
+
+# 留空=不校验（演示默认）。非空时须携带 Header X-Admin-Token，与前端 VITE_ADMIN_API_TOKEN 对齐
+Admin:
+  ApiToken: ""
+
+# 软删记录物理删除（默认关闭）；RetentionDays 默认 90
+GC:
+  Enabled: false
+  RetentionDays: 90
+
+# 按 IP 令牌桶：轻路径 PerIP*，重路径（POST /convert、/analyze）Heavy*
+RateLimit:
+  Enabled: true
+  PerIPQPS: 40
+  PerIPBurst: 80
+  HeavyPerIPQPS: 8
+  HeavyPerIPBurst: 16
+  MaxTrackedIPs: 50000
+
+# 用户 URL 出站 SSRF：公网生产建议 OnlyStdPorts=true 且 AllowPrivateTargets=false
+SSRF:
+  ProbeTimeout: 5s
+  FetchTimeout: 15s
+  MaxRedirects: 5
+  OnlyStdPorts: false
+  AllowPrivateTargets: true
+  MaxFetchBodyBytes: 2097152

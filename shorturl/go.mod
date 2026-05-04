@@ -7,6 +7,7 @@ require (
 	github.com/hibiken/asynq v0.26.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/zeromicro/go-zero v1.8.1
+	golang.org/x/time v0.14.0
 )
 
 require (
@@ -59,7 +60,6 @@ require (
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240711142825-46eb208f015d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240701130421-f6361c86f094 // indirect
 	google.golang.org/grpc v1.65.0 // indirect

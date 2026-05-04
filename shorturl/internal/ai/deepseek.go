@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"shorturl/internal/config"
+
+	"github.com/zeromicro/go-zero/core/breaker"
 )
 
 type DeepSeekProvider struct {
@@ -62,6 +65,9 @@ URL: %s
 	}
 	raw, err := d.callChatCompletions(ctx, reqBody)
 	if err != nil {
+		if errors.Is(err, breaker.ErrServiceUnavailable) {
+			return d.ruleBasedAnalyze(url, title, desc), nil
+		}
 		return nil, err
 	}
 
@@ -79,7 +85,7 @@ func (d *DeepSeekProvider) GenerateReport(ctx context.Context, statsData string)
 		statsData = "（无摘要输入）"
 	}
 	if d.apiKey == "" || d.baseURL == "" || d.model == "" {
-		return fallbackStatsReport(statsData), nil
+		return FallbackStatsReport(statsData), nil
 	}
 	prompt := fmt.Sprintf(`你是数据分析师。根据下方「短链访问统计摘要」，用中文输出**仅一段 JSON**（不要 Markdown、不要代码围栏），格式：
 {"summary":"1～3句总体结论","trends":["趋势要点1","趋势要点2"],"anomalies":["异常或风险点，若无则填「无明显异常」"],"suggestions":["可执行建议1","建议2"]}
@@ -95,41 +101,33 @@ func (d *DeepSeekProvider) GenerateReport(ctx context.Context, statsData string)
 	}
 	raw, err := d.callChatCompletions(ctx, reqBody)
 	if err != nil {
-		return fallbackStatsReport(statsData), nil
+		return FallbackStatsReport(statsData), nil
 	}
 	var r ReportResult
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &r); err != nil {
-		return fallbackStatsReport(statsData), nil
+		return FallbackStatsReport(statsData), nil
 	}
-	normalizeReportResult(&r)
+	NormalizeReportResult(&r)
 	if strings.TrimSpace(r.Summary) == "" {
-		return fallbackStatsReport(statsData), nil
+		return FallbackStatsReport(statsData), nil
 	}
 	return &r, nil
 }
 
-func normalizeReportResult(r *ReportResult) {
-	if r.Trends == nil {
-		r.Trends = []string{}
-	}
-	if r.Anomalies == nil {
-		r.Anomalies = []string{}
-	}
-	if r.Suggestions == nil {
-		r.Suggestions = []string{}
-	}
-}
-
-func fallbackStatsReport(statsData string) *ReportResult {
-	return &ReportResult{
-		Summary:     "已根据当前 PV/UV 与端侧占比生成简要结论（大模型未配置或调用失败时显示此条）。",
-		Trends:      []string{statsData},
-		Anomalies:   []string{"无明显异常（请以图表与明细为准）"},
-		Suggestions: []string{"拉长统计区间对比趋势", "关注移动端占比与地域分布变化"},
-	}
-}
-
 func (d *DeepSeekProvider) callChatCompletions(ctx context.Context, body map[string]any) (string, error) {
+	var out string
+	err := breaker.GetBreaker("deepseek-http").DoCtx(ctx, func() error {
+		var e error
+		out, e = d.doChatCompletionsOnce(ctx, body)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func (d *DeepSeekProvider) doChatCompletionsOnce(ctx context.Context, body map[string]any) (string, error) {
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {

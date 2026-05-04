@@ -23,6 +23,7 @@ func NewStatsLogic(ctx context.Context, svcCtx *svc.ServiceContext) *StatsLogic 
 	}
 }
 
+// Stats 从 access_log 按区间实时聚合 PV/UV 等；access_stats 表由 Worker 按小时写入，供扩展/离线用途，当前查询路径不依赖该表。
 func (l *StatsLogic) Stats(req *types.StatsRequest) (*types.StatsResponse, error) {
 	start, err := time.ParseInLocation("2006-01-02", req.StartDate, time.Local)
 	if err != nil {

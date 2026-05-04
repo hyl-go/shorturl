@@ -41,14 +41,7 @@ func (l *AnalyzeLogic) Analyze(req *types.AnalyzeRequest) (*types.AnalyzeRespons
 		dataSummary += fmt.Sprintf(", 地域Top1=%s/%s 次数=%d", g.Country, g.City, g.Count)
 	}
 
-	provider, err := l.svcCtx.AIFactory.GetProvider(l.svcCtx.Config.AI.Provider)
-	if err != nil {
-		return nil, err
-	}
-	report, err := provider.GenerateReport(l.ctx, dataSummary)
-	if err != nil {
-		return nil, err
-	}
+	report := l.svcCtx.AIFactory.GenerateReportWithFallback(l.ctx, l.svcCtx.Config.AI.Provider, dataSummary)
 
 	return &types.AnalyzeResponse{
 		Statistics: *stats,

@@ -7,7 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
+
+	"github.com/zeromicro/go-zero/core/breaker"
 )
 
 type PageInfo struct {
@@ -16,16 +17,40 @@ type PageInfo struct {
 }
 
 type Fetcher struct {
-	client *http.Client
+	client  *http.Client
+	maxBody int64
 }
 
-func NewFetcher() *Fetcher {
+// Options 构建 Fetcher；HTTPClient 须为 ssrf.NewUserURLHTTPClient 等受控客户端，勿传裸 http.Client。
+type Options struct {
+	HTTPClient   *http.Client
+	MaxBodyBytes int64
+}
+
+func NewFetcher(opt Options) *Fetcher {
+	if opt.MaxBodyBytes <= 0 {
+		opt.MaxBodyBytes = 2 * 1024 * 1024
+	}
 	return &Fetcher{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client:  opt.HTTPClient,
+		maxBody: opt.MaxBodyBytes,
 	}
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*PageInfo, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("fetcher: http client not configured")
+	}
+	var info *PageInfo
+	err := breaker.GetBreaker("http-fetch").DoCtx(ctx, func() error {
+		var e error
+		info, e = f.fetchOnce(ctx, rawURL)
+		return e
+	})
+	return info, err
+}
+
+func (f *Fetcher) fetchOnce(ctx context.Context, rawURL string) (*PageInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -41,7 +66,7 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*PageInfo, error) {
 		return nil, fmt.Errorf("fetch failed status=%d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, f.maxBody))
 	if err != nil {
 		return nil, err
 	}

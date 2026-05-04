@@ -11,6 +11,19 @@ const client = axios.create({
   timeout: 15000
 })
 
+/** 与后端 Admin.ApiToken 一致；仅发往 /stats、/analyze、/links* */
+const adminApiToken = (import.meta.env.VITE_ADMIN_API_TOKEN as string | undefined)?.trim()
+if (adminApiToken) {
+  client.interceptors.request.use((config) => {
+    const u = config.url ?? ''
+    if (u.startsWith('/stats') || u.startsWith('/analyze') || u.startsWith('/links')) {
+      config.headers = config.headers ?? {}
+      ;(config.headers as Record<string, string>)['X-Admin-Token'] = adminApiToken
+    }
+    return config
+  })
+}
+
 export interface ConvertPayload {
   longURL: string
   customShortURL?: string

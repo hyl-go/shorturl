@@ -15,7 +15,24 @@ const result = ref<{
   category?: string
   safetyStatus?: string
   aiSuggestions?: string[]
+  /** same_active | renewed_expired | reactivated_deleted | inserted_new */
+  linkReuse?: string
 } | null>(null)
+
+function reuseHint(key?: string): string {
+  switch (key) {
+    case 'same_active':
+      return '当前为已有有效短链，已直接返回'
+    case 'renewed_expired':
+      return '该长链曾绑定短链但已过期，已按本次设置在原有短码上续约。'
+    case 'reactivated_deleted':
+      return '该长链记录曾被删除，已在原短码上复活并应用本次设置。'
+    case 'inserted_new':
+      return '已为新长链生成短码。'
+    default:
+      return ''
+  }
+}
 
 const expireMode = ref<ExpireMode>('never')
 const expirePreset = ref<'30m' | '1h' | '1d' | '7d'>('1h')
@@ -141,8 +158,9 @@ const onSubmit = async () => {
       <template #header>
         <span class="card-head">生成结果</span>
       </template>
-      <div class="result-short">{{ result.shortURL }}</div>
-      <el-button type="primary" plain size="small" class="try-open-btn" @click="openShortUrlDisplay(result.shortURL)">
+    <div class="result-short">{{ result.shortURL }}</div>
+    <p v-if="reuseHint(result.linkReuse)" class="reuse-line">{{ reuseHint(result.linkReuse) }}</p>
+    <el-button type="primary" plain size="small" class="try-open-btn" @click="openShortUrlDisplay(result.shortURL)">
         试跳短链（新标签打开）
       </el-button>
       <div v-if="result.expireAt" class="result-row">
@@ -209,6 +227,12 @@ const onSubmit = async () => {
 .expire-hint {
   font-size: 0.8rem;
   color: var(--app-text-muted);
+}
+.reuse-line {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--app-text-muted);
+  line-height: 1.45;
 }
 .result-short {
   font-size: 1rem;

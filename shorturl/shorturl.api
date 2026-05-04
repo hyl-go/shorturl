@@ -17,6 +17,7 @@ type ConvertResponse {
 	Category      string `json:"category,optional"`
 	SafetyStatus  string `json:"safetyStatus,optional"`
 	AiSuggestions []string `json:"aiSuggestions,optional"`
+	LinkReuse     string `json:"linkReuse,optional"`
 }
 
 type ShowRequest {

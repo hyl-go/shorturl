@@ -16,6 +16,8 @@ type ConvertResponse struct {
 	Category      string   `json:"category,omitempty"`
 	SafetyStatus  string   `json:"safetyStatus,omitempty"`
 	AiSuggestions []string `json:"aiSuggestions,omitempty"`
+	// linkReuse：same_active 幂等命中有效链 | renewed_expired 过期后同记录续约 | reactivated_deleted 软删复活 | inserted_new 新插入
+	LinkReuse string `json:"linkReuse,omitempty"`
 }
 
 type ShowRequest struct {

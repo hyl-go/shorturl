@@ -47,7 +47,7 @@ func (l *UpdateLinkLogic) UpdateLink(req *types.LinkUpdateRequest) (*types.LinkU
 
 	newLong := strings.TrimSpace(req.LongURL)
 	if newLong != "" && newLong != strings.TrimSpace(row.Lurl.String) {
-		if ok := connect.Get(newLong); !ok {
+		if ok := connect.Get(l.ctx, l.svcCtx.UserURLProbe, newLong); !ok {
 			return nil, errors.New("长链接无效或不可达")
 		}
 		newMd5Val := md5.Sum([]byte(newLong))
