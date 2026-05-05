@@ -31,7 +31,7 @@ func NewShowLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ShowLogic {
 
 func (l *ShowLogic) Show(req *types.ShowRequest) (resp *types.ShowResponse, err error) {
 	// 布隆过滤器前置拦截：不存在则 100% 不存在，直接 404，防止缓存穿透
-	exists, err := l.svcCtx.Filter.Exists([]byte(req.ShortURL))
+	exists, err := l.svcCtx.Filter.Exists(l.ctx, []byte(req.ShortURL))
 	if err != nil {
 		logx.Errorw("Bloom Exists failed", logx.LogField{Key: "err", Value: err.Error()})
 		return nil, err
@@ -61,6 +61,8 @@ func (l *ShowLogic) Show(req *types.ShowRequest) (resp *types.ShowResponse, err 
 		Surl:       req.ShortURL,
 		AccessTime: time.Now(),
 		IP:         req.IP,
+		Country:    req.Country,
+		City:       req.Region,
 		UserAgent:  req.UserAgent,
 		Referer:    req.Referer,
 	}

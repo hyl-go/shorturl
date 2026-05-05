@@ -9,24 +9,36 @@ MaxBytes: 2097152
 CpuThreshold: 900
 # 与 RestConf.Middlewares 对齐：显式开启熔断、超时、限连接、自适应降载等
 Middlewares:
-  Trace: true
-  Log: true
-  Prometheus: true
-  MaxConns: true
-  Breaker: true
-  Shedding: true
-  Timeout: true
-  Recover: true
-  Metrics: true
-  MaxBytes: true
-  Gunzip: true
+  Trace: true       # [链路追踪] 开启 OpenTelemetry 分布式链路追踪
+  Log: true         # [请求日志] 开启 HTTP/RPC 的访问日志记录
+  Prometheus: true  # [指标暴露] 开启 Prometheus 监控指标拉取端点
+  MaxConns: false   # [并发控制] 关闭最大并发连接数限制
+  Breaker: false     # [熔断降级] 开启熔断器（保护下游服务或自身）
+  Shedding: false   # [过载保护] 关闭自适应降载（CPU飙高时主动丢弃请求）
+  Timeout: true     # [超时控制] 开启请求超时拦截
+  Recover: true     # [异常恢复] 开启 Panic 恢复，防止单个请求引发整个服务崩溃
+  Metrics: true     # [内部统计] 开启内部运行指标的统计收集
+  MaxBytes: true    # [请求体积] 开启请求体大小限制，防止超大包导致的 OOM
+  Gunzip: true      # [解压支持] 开启 gzip 自动解压支持
 Cors: true
 
 ShortUrlDB:
   DSN: root:123456@tcp(127.0.0.1:13307)/shorturl?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai
 
+# 发号器：默认 redis（INCR）；mysql 为旧版 REPLACE INTO sequence 兼容
 Sequence:
+  Provider: redis
+  RedisKey: shorturl:sequence
+  BootstrapFromMysql: true
   DSN: root:123456@tcp(127.0.0.1:13307)/shorturl?charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai
+
+# 短链近似集合：cuckoo=RedisBloom 可删（需 Redis Stack / RedisBloom 模块）；失败自动降级 legacy 标准布隆
+ShortURLFilter:
+  Backend: cuckoo
+  CuckooKey: shorturl:surl_cf
+  CuckooCapacity: 25000000
+  LegacyBloomKey: bloom_filter
+  LegacyBloomBits: 20971520
 
 BaseString: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
   
@@ -41,7 +53,7 @@ CacheRedis:
 AI:
   Provider: deepseek
   DeepSeek:
-    APIKey: "sk-xx"
+    APIKey: "sk-xxx"
     BaseURL: "https://api.deepseek.com/v1"
     Model: "deepseek-chat"
     Timeout: 60s
@@ -55,6 +67,13 @@ Asynq:
   RedisDB: 0
   Queue: "default"
 
+# 服务端 IP 地理解析（用于国家/地区统计），请求头无 geo 信息时自动回填
+GeoIP:
+  Enabled: true
+  Endpoint: "http://ip-api.com/json"
+  Timeout: 1500ms
+  CacheTTL: 24h
+
 # 留空=不校验（演示默认）。非空时须携带 Header X-Admin-Token，与前端 VITE_ADMIN_API_TOKEN 对齐
 Admin:
   ApiToken: ""
@@ -64,9 +83,9 @@ GC:
   Enabled: false
   RetentionDays: 90
 
-# 按 IP 令牌桶：轻路径 PerIP*，重路径（POST /convert、/analyze）Heavy*
+# 按 IP 令牌桶：轻路径 PerIP*，重路径（POST /convert、/analyze）Heavy*   hey -n 5000 -c 50 -m GET "http://localhost:8888/bb"
 RateLimit:
-  Enabled: true
+  Enabled: false
   PerIPQPS: 40
   PerIPBurst: 80
   HeavyPerIPQPS: 8

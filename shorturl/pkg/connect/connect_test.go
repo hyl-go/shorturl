@@ -20,8 +20,10 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestGet_mockTransport(t *testing.T) {
 	ctx := context.Background()
 	convey.Convey("2xx 视为可访问", t, func() {
+		methods := make([]string, 0, 2)
 		cli := &http.Client{
 			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				methods = append(methods, r.Method)
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader("")),
@@ -30,6 +32,7 @@ func TestGet_mockTransport(t *testing.T) {
 			}),
 		}
 		convey.So(Get(ctx, cli, "https://example.com/ok"), convey.ShouldBeTrue)
+		convey.So(methods, convey.ShouldResemble, []string{http.MethodHead})
 	})
 
 	convey.Convey("204 No Content 仍为成功（2xx）", t, func() {
@@ -56,6 +59,42 @@ func TestGet_mockTransport(t *testing.T) {
 			}),
 		}
 		convey.So(Get(ctx, cli, "https://example.com/missing"), convey.ShouldBeFalse)
+	})
+
+	convey.Convey("301 视为可访问（重定向）", t, func() {
+		cli := &http.Client{
+			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusMovedPermanently,
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    r,
+				}, nil
+			}),
+		}
+		convey.So(Get(ctx, cli, "https://example.com/redirect"), convey.ShouldBeTrue)
+		res := Probe(ctx, cli, "https://example.com/redirect")
+		convey.So(res.Status, convey.ShouldEqual, ProbeRedirect)
+		convey.So(res.IsValidURL(), convey.ShouldBeTrue)
+	})
+
+	convey.Convey("HEAD 不支持时回退 GET", t, func() {
+		methods := make([]string, 0, 2)
+		cli := &http.Client{
+			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				methods = append(methods, r.Method)
+				code := http.StatusMethodNotAllowed
+				if r.Method == http.MethodGet {
+					code = http.StatusOK
+				}
+				return &http.Response{
+					StatusCode: code,
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    r,
+				}, nil
+			}),
+		}
+		convey.So(Get(ctx, cli, "https://example.com/fallback"), convey.ShouldBeTrue)
+		convey.So(methods, convey.ShouldResemble, []string{http.MethodHead, http.MethodGet})
 	})
 
 	convey.Convey("非法 URL", t, func() {

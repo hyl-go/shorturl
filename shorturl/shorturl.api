@@ -42,11 +42,22 @@ type ChartPoint {
 
 type DeviceStats {
 	MobileRate float64 `json:"mobileRate"`
+	Breakdown []DeviceCount `json:"breakdown"`
 }
 
 type GeoStat {
 	Country string `json:"country"`
 	City string `json:"city"`
+	Count int64 `json:"count"`
+}
+
+type GeoAgg {
+	Name string `json:"name"`
+	Count int64 `json:"count"`
+}
+
+type DeviceCount {
+	Device string `json:"device"`
 	Count int64 `json:"count"`
 }
 
@@ -56,6 +67,8 @@ type StatsResponse {
 	ChartData []ChartPoint `json:"chartData"`
 	DeviceStats DeviceStats `json:"deviceStats"`
 	GeoStats []GeoStat `json:"geoStats"`
+	GeoByCountry []GeoAgg `json:"geoByCountry"`
+	GeoByRegion []GeoAgg `json:"geoByRegion"`
 }
 
 type AnalyzeRequest {
@@ -65,15 +78,44 @@ type AnalyzeRequest {
 }
 
 type AIReport {
-	Summary string `json:"summary"`
-	Trends []string `json:"trends"`
-	Anomalies []string `json:"anomalies"`
+	Title       string   `json:"title,optional"`
+	Summary     string   `json:"summary"`
+	Trends      []string `json:"trends"`
+	Anomalies   []string `json:"anomalies"`
 	Suggestions []string `json:"suggestions"`
+	Markdown    string   `json:"markdown,optional"`
 }
 
+type ReportJobInfo {
+	JobId string `json:"jobId"`
+	Status string `json:"status"`
+}
+
+// 统计立即返回；AI 报告由 Asynq 异步生成，通过 reportJob 轮询 /analyze/report/status
 type AnalyzeResponse {
 	Statistics StatsResponse `json:"statistics"`
-	AIReport AIReport `json:"aiReport"`
+	AIReport AIReport `json:"aiReport,optional"`
+	ReportJob ReportJobInfo `json:"reportJob"`
+}
+
+type AnalyzeReportStatusRequest {
+	JobId string `form:"jobId" validate:"required"`
+}
+
+type AnalyzeReportStatusResponse {
+	Status string `json:"status"`
+	AIReport AIReport `json:"aiReport,optional"`
+	Error string `json:"error,optional"`
+	MarkdownEdited string `json:"markdownEdited,optional"`
+}
+
+type AnalyzeReportUpdateRequest {
+	JobId string `json:"jobId" validate:"required"`
+	Markdown string `json:"markdown" validate:"required"`
+}
+
+type AnalyzeReportUpdateResponse {
+	Ok bool `json:"ok"`
 }
 
 type LinkListRequest {
@@ -130,15 +172,112 @@ type LinkCategoriesResponse {
 	Categories []string `json:"categories"`
 }
 
+// ---------- 管理端：性能快照（与 internal/types/types.go、PerformanceHandler 对齐）----------
+
+type PerformanceSnapshotResponse {
+	CollectedAt string     `json:"collectedAt"`
+	Host        PerfHost   `json:"host"`
+	CPU         PerfCPU    `json:"cpu"`
+	Memory      PerfMemory `json:"memory"`
+	Disk        PerfDisk   `json:"disk"`
+	DiskIO      PerfDiskIO `json:"diskIO"`
+	MySQL       PerfMySQL  `json:"mysql"`
+	Redis       PerfRedis  `json:"redis"`
+}
+
+type PerfHost {
+	Hostname   string `json:"hostname"`
+	OS         string `json:"os"`
+	Platform   string `json:"platform"`
+	Kernel     string `json:"kernel"`
+	UptimeSec  uint64 `json:"uptimeSec"`
+	Procs      uint64 `json:"procs"`
+	BootTime   uint64 `json:"bootTime"`
+	GoRoutines int64  `json:"goRoutines"`
+}
+
+type PerfCPU {
+	UsagePercent float64 `json:"usagePercent"`
+	Load1        float64 `json:"load1,optional"`
+	Load5        float64 `json:"load5,optional"`
+	Load15       float64 `json:"load15,optional"`
+}
+
+type PerfMemory {
+	TotalBytes     int64   `json:"totalBytes"`
+	AvailableBytes int64   `json:"availableBytes"`
+	UsedBytes      int64   `json:"usedBytes"`
+	UsedPercent    float64 `json:"usedPercent"`
+}
+
+type PerfDisk {
+	Path              string  `json:"path"`
+	TotalBytes        int64   `json:"totalBytes"`
+	UsedBytes         int64   `json:"usedBytes"`
+	FreeBytes         int64   `json:"freeBytes"`
+	UsedPercent       float64 `json:"usedPercent"`
+	InodesTotal       int64   `json:"inodesTotal"`
+	InodesUsed        int64   `json:"inodesUsed"`
+	InodesFree        int64   `json:"inodesFree"`
+	InodesUsedPercent float64 `json:"inodesUsedPercent"`
+}
+
+type PerfDiskIO {
+	ReadBytes  uint64 `json:"readBytes"`
+	WriteBytes uint64 `json:"writeBytes"`
+	ReadCount  uint64 `json:"readCount"`
+	WriteCount uint64 `json:"writeCount"`
+	Note       string `json:"note,optional"`
+}
+
+type PerfMySQL {
+	Ok                 bool    `json:"ok"`
+	Error              string  `json:"error,optional"`
+	PingMs             float64 `json:"pingMs"`
+	Version            string  `json:"version,optional"`
+	MaxConnections     int64   `json:"maxConnections"`
+	ThreadsConnected   int64   `json:"threadsConnected"`
+	ThreadsRunning     int64   `json:"threadsRunning"`
+	Questions          int64   `json:"questions"`
+	SlowQueries        int64   `json:"slowQueries"`
+	UptimeSec          int64   `json:"uptimeSec"`
+	MaxUsedConnections int64   `json:"maxUsedConnections"`
+}
+
+type PerfRedis {
+	Ok                     bool    `json:"ok"`
+	Error                  string  `json:"error,optional"`
+	PingMs                 float64 `json:"pingMs"`
+	RedisVersion           string  `json:"redisVersion,optional"`
+	UsedMemory             int64   `json:"usedMemory"`
+	UsedMemoryHuman        string  `json:"usedMemoryHuman,optional"`
+	ConnectedClients       int64   `json:"connectedClients"`
+	TotalCommandsProcessed int64   `json:"totalCommandsProcessed"`
+	InstantaneousOpsPerSec int64   `json:"instantaneousOpsPerSec"`
+	KeyspaceHits           int64   `json:"keyspaceHits"`
+	KeyspaceMisses         int64   `json:"keyspaceMisses"`
+	RdbLastSaveTime        int64   `json:"rdbLastSaveTime"`
+	AofEnabled             string  `json:"aofEnabled,optional"`
+}
+
 service shorturl-api {
 	@handler ConverHandler
 	post /convert (ConverRequest) returns (ConvertResponse)
+
+	@handler PerformanceHandler
+	get /admin/performance returns (PerformanceSnapshotResponse)
 
 	@handler StatsHandler
 	get /stats (StatsRequest) returns (StatsResponse)
 
 	@handler AnalyzeHandler
 	post /analyze (AnalyzeRequest) returns (AnalyzeResponse)
+
+	@handler AnalyzeReportStatusHandler
+	get /analyze/report/status (AnalyzeReportStatusRequest) returns (AnalyzeReportStatusResponse)
+
+	@handler AnalyzeReportUpdateHandler
+	put /analyze/report (AnalyzeReportUpdateRequest) returns (AnalyzeReportUpdateResponse)
 
 	@handler LinkCategoriesHandler
 	get /links/categories returns (LinkCategoriesResponse)

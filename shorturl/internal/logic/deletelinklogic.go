@@ -44,5 +44,10 @@ func (l *DeleteLinkLogic) DeleteLink(req *types.LinkDeleteRequest) (*types.LinkD
 		logx.Errorw("soft delete ShortUrlMap failed", logx.LogField{Key: "id", Value: req.Id}, logx.LogField{Key: "err", Value: err.Error()})
 		return nil, err
 	}
+	if l.svcCtx.Filter != nil && row.Surl.Valid && row.Surl.String != "" {
+		if err := l.svcCtx.Filter.Remove(l.ctx, []byte(row.Surl.String)); err != nil {
+			logx.Errorf("filter remove after soft delete surl=%s: %v", row.Surl.String, err)
+		}
+	}
 	return &types.LinkDeleteResponse{Ok: true}, nil
 }

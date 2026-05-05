@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+	"shorturl/pkg/geoip"
 )
 
 const TypeAccessLog = "access:log"
@@ -26,8 +28,9 @@ type AccessLogTask struct {
 }
 
 type LogWorker struct {
-	Client *asynq.Client
-	DB     sqlx.SqlConn
+	Client      *asynq.Client
+	DB          sqlx.SqlConn
+	GeoResolver *geoip.Resolver
 }
 
 func (w *LogWorker) Enqueue(task *AccessLogTask) error {
@@ -41,6 +44,19 @@ func (w *LogWorker) HandleAccessLog(ctx context.Context, t *asynq.Task) error {
 	var task AccessLogTask
 	if err := json.Unmarshal(t.Payload(), &task); err != nil {
 		return err
+	}
+	if (task.Country == "" || task.City == "") && w.GeoResolver != nil && task.IP != "" {
+		country, region, err := w.GeoResolver.Resolve(ctx, task.IP)
+		if err != nil {
+			logx.Errorf("geoip resolve failed ip=%s: %v", task.IP, err)
+		} else {
+			if task.Country == "" {
+				task.Country = country
+			}
+			if task.City == "" {
+				task.City = region
+			}
+		}
 	}
 	query := "insert into access_log (surl,access_time,ip,country,city,user_agent,device_type,os,browser,referer) values (?,?,?,?,?,?,?,?,?,?)"
 	_, err := w.DB.ExecCtx(

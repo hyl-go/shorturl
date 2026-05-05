@@ -47,8 +47,12 @@ func (l *UpdateLinkLogic) UpdateLink(req *types.LinkUpdateRequest) (*types.LinkU
 
 	newLong := strings.TrimSpace(req.LongURL)
 	if newLong != "" && newLong != strings.TrimSpace(row.Lurl.String) {
-		if ok := connect.Get(l.ctx, l.svcCtx.UserURLProbe, newLong); !ok {
-			return nil, errors.New("长链接无效或不可达")
+		probe := connect.Probe(l.ctx, l.svcCtx.UserURLProbe, newLong)
+		if !probe.IsValidURL() {
+			if probe.Status == connect.ProbeRejected {
+				return nil, errors.New("长链接不可达或已失效")
+			}
+			return nil, errors.New("长链接校验失败，请稍后重试")
 		}
 		newMd5Val := md5.Sum([]byte(newLong))
 		dup, errMd5 := l.svcCtx.ShortUrlMapModel.FindOneByMd5(l.ctx, sql.NullString{String: newMd5Val, Valid: true})

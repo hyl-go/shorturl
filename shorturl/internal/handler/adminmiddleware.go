@@ -34,10 +34,11 @@ func AdminAuthMiddleware(c config.Config) func(http.HandlerFunc) http.HandlerFun
 }
 
 func adminProtectedPath(path string) bool {
-	switch path {
-	case "/stats", "/analyze":
+	if strings.HasPrefix(path, "/admin/") {
 		return true
-	default:
-		return strings.HasPrefix(path, "/links")
 	}
+	if path == "/stats" || path == "/analyze" || strings.HasPrefix(path, "/analyze/") {
+		return true
+	}
+	return strings.HasPrefix(path, "/links")
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/hibiken/asynq"
 	"shorturl/internal/config"
 	"shorturl/internal/handler"
+	"shorturl/internal/logic"
 	"shorturl/internal/svc"
 	"shorturl/internal/worker"
 
@@ -46,13 +47,19 @@ func main() {
 	statsWorker := worker.NewStatsWorker(ctx.DbConn)
 	var gcWorker *worker.LinkGCWorker
 	if c.GC.Enabled {
-		gcWorker = worker.NewLinkGCWorker(ctx.DbConn, ctx.Redis)
+		gcWorker = worker.NewLinkGCWorker(ctx.DbConn, ctx.Redis, ctx.Filter)
 	}
 	workerServer := worker.NewAsynqServer(redisOpt)
-	worker.RunServer(workerServer, worker.BuildMux(ctx.LogWorker, statsWorker, gcWorker))
+	reportRunner := logic.NewAIReportTaskRunner(ctx)
+	worker.RunServer(workerServer, worker.BuildMux(ctx.LogWorker, statsWorker, gcWorker, reportRunner.HandleTask))
 
 	scheduler := asynq.NewScheduler(redisOpt, nil)
-	if _, err := scheduler.Register("0 * * * *", asynq.NewTask(worker.TypeStatsAggregateHour, nil)); err != nil {
+	if _, err := scheduler.Register(
+		"0 * * * *",
+		asynq.NewTask(worker.TypeStatsAggregateHour, nil),
+		asynq.Queue(worker.QueueStats),
+		asynq.MaxRetry(5),
+	); err != nil {
 		log.Fatalf("scheduler register failed: %v", err)
 	}
 	if c.GC.Enabled && gcWorker != nil {

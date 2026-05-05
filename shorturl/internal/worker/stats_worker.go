@@ -12,6 +12,9 @@ import (
 
 const TypeStatsAggregateHour = "stats:aggregate:hour"
 
+// QueueStats Asynq 队列名，与访问日志 default、AI 报告 reports 分离。
+const QueueStats = "stats"
+
 // StatsWorker 按小时将 access_log 聚合写入 access_stats。
 type StatsWorker struct {
 	DB sqlx.SqlConn

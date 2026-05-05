@@ -2,14 +2,19 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/zeromicro/go-zero/core/stores/cache"
 	"github.com/zeromicro/go-zero/core/stores/sqlx"
+	"golang.org/x/sync/singleflight"
 )
 
 var _ ShortUrlMapModel = (*customShortUrlMapModel)(nil)
+
+// FindOneBySurl 热点 miss 时合并回源，减轻缓存击穿瞬间对 DB 的压力。
+var findOneBySurlSF singleflight.Group
 
 type (
 	// ShortUrlMapModel is an interface to be customized, add more methods here,
@@ -32,6 +37,20 @@ func NewShortUrlMapModel(conn sqlx.SqlConn, c cache.CacheConf, opts ...cache.Opt
 	return &customShortUrlMapModel{
 		defaultShortUrlMapModel: newShortUrlMapModel(conn, c, opts...),
 	}
+}
+
+func (m *customShortUrlMapModel) FindOneBySurl(ctx context.Context, surl sql.NullString) (*ShortUrlMap, error) {
+	key := "__invalid__"
+	if surl.Valid {
+		key = surl.String
+	}
+	v, err, _ := findOneBySurlSF.Do(key, func() (any, error) {
+		return m.defaultShortUrlMapModel.FindOneBySurl(ctx, surl)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*ShortUrlMap), nil
 }
 
 // FindAllSurl 查询所有未删除且未过期的短链接，用于启动时预热布隆过滤器

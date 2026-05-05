@@ -2,8 +2,14 @@ package logic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
+
+	"shorturl/internal/aireport"
 	"shorturl/internal/svc"
 	"shorturl/internal/types"
 )
@@ -31,25 +37,45 @@ func (l *AnalyzeLogic) Analyze(req *types.AnalyzeRequest) (*types.AnalyzeRespons
 		return nil, err
 	}
 
-	dataSummary := fmt.Sprintf("短链=%s, 日期=%s~%s, PV=%d, UV=%d, 移动端占比=%.2f%%",
-		req.ShortURL, req.StartDate, req.EndDate, stats.TotalPV, stats.TotalUV, stats.DeviceStats.MobileRate)
-	if len(stats.ChartData) > 0 {
-		dataSummary += fmt.Sprintf(", 按日样本天数=%d", len(stats.ChartData))
+	jobID := uuid.New().String()
+	statsBytes, err := json.Marshal(stats)
+	if err != nil {
+		return nil, err
 	}
-	if len(stats.GeoStats) > 0 {
-		g := stats.GeoStats[0]
-		dataSummary += fmt.Sprintf(", 地域Top1=%s/%s 次数=%d", g.Country, g.City, g.Count)
+	payload := aireport.TaskPayload{
+		JobID:     jobID,
+		ShortURL:  req.ShortURL,
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+		StatsJSON: string(statsBytes),
 	}
-
-	report := l.svcCtx.AIFactory.GenerateReportWithFallback(l.ctx, l.svcCtx.Config.AI.Provider, dataSummary)
+	taskBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	if l.svcCtx.AIReportStore == nil || l.svcCtx.AsynqClient == nil {
+		return nil, fmt.Errorf("异步报告队列未初始化")
+	}
+	if err := l.svcCtx.AIReportStore.CreatePending(l.ctx, jobID, req.ShortURL, req.StartDate, req.EndDate); err != nil {
+		return nil, err
+	}
+	task := asynq.NewTask(aireport.TaskType, taskBody)
+	_, err = l.svcCtx.AsynqClient.Enqueue(task,
+		asynq.Queue(aireport.QueueName),
+		asynq.MaxRetry(4),
+		asynq.Timeout(12*time.Minute),
+	)
+	if err != nil {
+		_ = l.svcCtx.AIReportStore.Delete(l.ctx, jobID)
+		return nil, fmt.Errorf("报告任务入队失败: %w", err)
+	}
 
 	return &types.AnalyzeResponse{
 		Statistics: *stats,
-		AIReport: types.AIReport{
-			Summary:     report.Summary,
-			Trends:      report.Trends,
-			Anomalies:   report.Anomalies,
-			Suggestions: report.Suggestions,
+		AIReport:   nil,
+		ReportJob: types.ReportJobInfo{
+			JobId:  jobID,
+			Status: string(aireport.StatusPending),
 		},
 	}, nil
 }

@@ -15,7 +15,22 @@ type Config struct {
 	}
 
 	Sequence struct {
-		DSN string
+		// Provider: redis（默认）| mysql（兼容旧部署）
+		Provider string `json:",optional"`
+		DSN      string
+		// RedisKey INCR 键；Provider=redis 时使用
+		RedisKey string `json:",optional"`
+		// BootstrapFromMysql 为 true 且 Redis 中尚无该 key 时，从 DSN 库 `sequence` 表读 MAX(id) 作为初值，避免与旧 MySQL 发号器短码冲突
+		BootstrapFromMysql bool `json:",optional"`
+	}
+
+	// ShortURLFilter 短链存在性前置过滤：cuckoo=RedisBloom（可删）| legacy=标准布隆
+	ShortURLFilter struct {
+		Backend         string `json:",optional"` // cuckoo | legacy，空默认 cuckoo
+		CuckooKey       string `json:",optional"`
+		CuckooCapacity  int64  `json:",optional"`
+		LegacyBloomKey  string `json:",optional"`
+		LegacyBloomBits uint   `json:",optional"`
 	}
 
 	BaseString string
@@ -29,6 +44,15 @@ type Config struct {
 	AI AIConfig
 
 	Asynq AsynqConfig
+
+	// GeoIP：服务端 IP 地理解析（用于 country/city 统计）。
+	GeoIP struct {
+		Enabled bool `json:",optional"`
+		// Endpoint 形如: http://ip-api.com/json
+		Endpoint string        `json:",optional"`
+		Timeout  time.Duration `json:",optional"`
+		CacheTTL time.Duration `json:",optional"`
+	}
 
 	// Admin.ApiToken 非空时，/stats、/analyze、/links* 需 Header X-Admin-Token；演示环境可留空
 	Admin struct {

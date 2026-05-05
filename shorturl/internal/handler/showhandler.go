@@ -25,6 +25,17 @@ func ShowHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			return
 		}
 		req.IP = ip.FromRequest(r)
+		req.Country = firstNonEmpty(
+			r.Header.Get("CF-IPCountry"),
+			r.Header.Get("X-Country"),
+			r.Header.Get("X-Geo-Country"),
+		)
+		req.Region = firstNonEmpty(
+			r.Header.Get("X-Region"),
+			r.Header.Get("X-Geo-Region"),
+			r.Header.Get("X-City"),
+			r.Header.Get("X-Geo-City"),
+		)
 		req.UserAgent = r.UserAgent()
 		req.Referer = r.Referer()
 		l := logic.NewShowLogic(r.Context(), svcCtx)
@@ -35,4 +46,13 @@ func ShowHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		}
 		http.Redirect(w, r, resp.LongURL, http.StatusFound)
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

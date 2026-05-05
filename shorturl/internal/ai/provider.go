@@ -12,10 +12,12 @@ type AnalyzeResult struct {
 }
 
 type ReportResult struct {
+	Title       string   `json:"title"`
 	Summary     string   `json:"summary"`
 	Trends      []string `json:"trends"`
 	Anomalies   []string `json:"anomalies"`
 	Suggestions []string `json:"suggestions"`
+	Markdown    string   `json:"markdown"`
 }
 
 type AIProvider interface {

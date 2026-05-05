@@ -43,10 +43,16 @@ func NewConverLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ConverLogi
 //  4. 生成 surl：自定义（黑名单 + 占用检查）或 Sequence+Base62（黑名单则循环重取）。
 //  5. 过期：ExpirePreset / ExpireAfter* / ExpireAt(RFC3339) 解析；全无则 expire_at 为 NULL。
 //  6. AI（可选）：爬取 + 分析，危险则拒绝写入。
-//  7. Bloom.Add（先于 DB 写入，避免 Insert 成功但布隆未写入导致跳转永久 404）→ Insert → 响应。
+//  7. Insert / Update 成功后写入近似过滤器（Cuckoo 或布隆）：DB 为真源，过滤器失败仅打日志（允许短暂假阴性多查库），避免「先写过滤器再写 DB」在插入失败时留下脏位。
 func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertResponse, err error) {
-	if ok := connect.Get(l.ctx, l.svcCtx.UserURLProbe, req.LongUrl); !ok {
-		return nil, errors.New("无效的连接")
+	probe := connect.Probe(l.ctx, l.svcCtx.UserURLProbe, req.LongUrl)
+	if !probe.IsValidURL() {
+		switch probe.Status {
+		case connect.ProbeRejected:
+			return nil, fmt.Errorf("长链接不可达（状态码 %d）", probe.StatusCode)
+		default:
+			return nil, errors.New("长链接校验失败，请检查链接格式、可达性或稍后重试")
+		}
 	}
 
 	md5Value := md5.Sum([]byte(req.LongUrl))
@@ -129,10 +135,6 @@ func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertRespo
 		aiResultCategory = sql.NullString{String: "其他", Valid: true}
 	}
 
-	if err := l.svcCtx.Filter.Add([]byte(short)); err != nil {
-		logx.Errorw("Bloom Add failed", logx.LogField{Key: "err", Value: err.Error()})
-		return nil, errors.New("短链索引写入失败，请稍后重试")
-	}
 	if _, err := l.svcCtx.ShortUrlMapModel.Insert(
 		l.ctx,
 		&model.ShortUrlMap{
@@ -152,6 +154,7 @@ func (l *ConverLogic) Conver(req *types.ConverRequest) (resp *types.ConvertRespo
 		logx.Errorw("ShortUrlMapModel.Insert failed", logx.LogField{Key: "err", Value: err.Error()})
 		return nil, err
 	}
+	l.filterAddBestEffort(short)
 	inserted := model.ShortUrlMap{
 		Surl:            sql.NullString{String: short, Valid: true},
 		ExpireAt:        expireAt,
@@ -208,15 +211,29 @@ func (l *ConverLogic) persistConvertedRowUpdate(row *model.ShortUrlMap, req *typ
 	updated.PageDescription = desc
 	updated.AiSuggestions = sugBytes
 
-	if err := l.svcCtx.Filter.Add([]byte(updated.Surl.String)); err != nil {
-		logx.Errorw("Bloom Add failed", logx.LogField{Key: "err", Value: err.Error()})
-		return nil, errors.New("短链索引写入失败，请稍后重试")
-	}
 	if err := l.svcCtx.ShortUrlMapModel.Update(l.ctx, &updated); err != nil {
 		logx.Errorw("ShortUrlMapModel.Update failed", logx.LogField{Key: "id", Value: row.Id}, logx.LogField{Key: "err", Value: err.Error()})
 		return nil, err
 	}
+	l.filterAddBestEffort(updated.Surl.String)
 	return l.rowToConvertResponse(&updated, reuseTag), nil
+}
+
+// filterAddBestEffort DB 已成功后再写近似过滤器；失败不阻塞用户（跳转可走 DB）。
+func (l *ConverLogic) filterAddBestEffort(short string) {
+	if l.svcCtx.Filter == nil || short == "" {
+		return
+	}
+	var last error
+	for i := 0; i < 3; i++ {
+		if err := l.svcCtx.Filter.Add(l.ctx, []byte(short)); err == nil {
+			return
+		} else {
+			last = err
+		}
+		time.Sleep(time.Millisecond * 25 * time.Duration(1<<uint(i)))
+	}
+	logx.Errorf("filter add best-effort failed short=%q err=%v", short, last)
 }
 
 // recoverFromDuplicateLurl 兜底处理并发重复提交导致的 unique(lurl) 冲突：
