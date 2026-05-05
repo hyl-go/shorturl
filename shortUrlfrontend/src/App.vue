@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ADMIN_ROUTE_ANALYTICS,
+  ADMIN_ROUTE_PERFORMANCE,
   ADMIN_ROUTE_LINKS,
   ADMIN_ROUTE_LOGIN,
   isAdminAuthed,
@@ -69,6 +70,9 @@ const logout = () => {
         </el-menu-item>
         <el-menu-item :index="ADMIN_ROUTE_ANALYTICS">
           <span>数据分析</span>
+        </el-menu-item>
+        <el-menu-item :index="ADMIN_ROUTE_PERFORMANCE">
+          <span>性能面板</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

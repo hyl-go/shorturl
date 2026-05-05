@@ -16,7 +16,12 @@ const adminApiToken = (import.meta.env.VITE_ADMIN_API_TOKEN as string | undefine
 if (adminApiToken) {
   client.interceptors.request.use((config) => {
     const u = config.url ?? ''
-    if (u.startsWith('/stats') || u.startsWith('/analyze') || u.startsWith('/links')) {
+    if (
+      u.startsWith('/stats') ||
+      u.startsWith('/analyze') ||
+      u.startsWith('/links') ||
+      u.startsWith('/admin/')
+    ) {
       config.headers = config.headers ?? {}
       ;(config.headers as Record<string, string>)['X-Admin-Token'] = adminApiToken
     }
@@ -41,6 +46,16 @@ export interface StatsPayload {
   shortURL: string
   startDate: string
   endDate: string
+}
+
+export interface StatsResponse {
+  totalPV: number
+  totalUV: number
+  chartData: { date: string; pv: number; uv: number }[]
+  deviceStats: { mobileRate?: number; breakdown?: { device: string; count: number }[] }
+  geoStats: { country: string; city: string; count: number }[]
+  geoByCountry?: { name: string; count: number }[]
+  geoByRegion?: { name: string; count: number }[]
 }
 
 export interface LinkListParams {
@@ -105,11 +120,44 @@ export function openShortUrlDisplay(shortURLFromApi: string): void {
 export const convertShortUrl = (payload: ConvertPayload) =>
   client.post('/convert', payload, { timeout: 180000 })
 
-export const getStats = (params: StatsPayload) => client.get('/stats', { params })
+export const getStats = (params: StatsPayload) => client.get<StatsResponse>('/stats', { params })
 
-/** 含 DeepSeek 生成报告，放宽超时避免前端先于服务端断开 */
+/** AI 报告由后端 Asynq 异步生成；本接口立即返回统计 + reportJob */
+export interface AIReportDTO {
+  title?: string
+  summary?: string
+  trends?: string[]
+  anomalies?: string[]
+  suggestions?: string[]
+  markdown?: string
+}
+
+export interface ReportJobDTO {
+  jobId: string
+  status: string
+}
+
+export interface AnalyzeResponseDTO {
+  statistics: StatsResponse
+  aiReport?: AIReportDTO | null
+  reportJob: ReportJobDTO
+}
+
 export const analyzeStats = (payload: StatsPayload) =>
-  client.post('/analyze', payload, { timeout: 120000 })
+  client.post<AnalyzeResponseDTO>('/analyze', payload, { timeout: 60000 })
+
+/** 轮询异步报告任务状态 */
+export const getAnalyzeReportStatus = (jobId: string) =>
+  client.get<{
+    status: string
+    aiReport?: AIReportDTO
+    error?: string
+    markdownEdited?: string
+  }>('/analyze/report/status', { params: { jobId } })
+
+/** 管理端保存编辑后的 Markdown */
+export const updateAnalyzeReportMarkdown = (jobId: string, markdown: string) =>
+  client.put<{ ok: boolean }>('/analyze/report', { jobId, markdown })
 
 export const listLinks = (params: LinkListParams) =>
   client.get<{ total: number; list: LinkListRow[] }>('/links', { params })
@@ -122,3 +170,63 @@ export const deleteLink = (id: number) => client.delete<{ ok: boolean }>(`/links
 /** 库中实际出现的分类（去重），用于管理端筛选下拉 */
 export const listLinkCategories = () =>
   client.get<{ categories: string[] }>('/links/categories')
+
+/** GET /admin/performance — 主机、MySQL、Redis 快照（需 X-Admin-Token，与后端 Admin.ApiToken 一致） */
+export interface PerformanceSnapshot {
+  collectedAt: string
+  host: {
+    hostname: string
+    os: string
+    platform: string
+    kernel: string
+    uptimeSec: number
+    procs: number
+    bootTime: number
+    goRoutines: number
+  }
+  cpu: { usagePercent: number; load1?: number; load5?: number; load15?: number }
+  memory: { totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number }
+  disk: {
+    path: string
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+    usedPercent: number
+    inodesTotal: number
+    inodesUsed: number
+    inodesFree: number
+    inodesUsedPercent: number
+  }
+  diskIO: { readBytes: number; writeBytes: number; readCount: number; writeCount: number; note?: string }
+  mysql: {
+    ok: boolean
+    error?: string
+    pingMs: number
+    version?: string
+    maxConnections: number
+    threadsConnected: number
+    threadsRunning: number
+    questions: number
+    slowQueries: number
+    uptimeSec: number
+    maxUsedConnections: number
+  }
+  redis: {
+    ok: boolean
+    error?: string
+    pingMs: number
+    redisVersion?: string
+    usedMemory: number
+    usedMemoryHuman?: string
+    connectedClients: number
+    totalCommandsProcessed: number
+    instantaneousOpsPerSec: number
+    keyspaceHits: number
+    keyspaceMisses: number
+    rdbLastSaveTime: number
+    aofEnabled?: string
+  }
+}
+
+export const getPerformanceSnapshot = () =>
+  client.get<PerformanceSnapshot>('/admin/performance', { timeout: 30000 })

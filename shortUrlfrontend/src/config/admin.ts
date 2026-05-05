@@ -2,6 +2,7 @@ export const ADMIN_ROUTE_LOGIN = '/entry/admin-portal-9x7k'
 export const ADMIN_ROUTE_HOME = '/admin'
 export const ADMIN_ROUTE_LINKS = '/admin/links'
 export const ADMIN_ROUTE_ANALYTICS = '/admin/analytics'
+export const ADMIN_ROUTE_PERFORMANCE = '/admin/performance'
 
 export const ADMIN_CREDENTIALS = {
   username: 'admin',
